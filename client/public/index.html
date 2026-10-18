@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Management System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a class="nav-brand" href="#home"><h1>EMS</h1></a>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="#home" class="nav-link">Home</a></li>
+                <li id="dashLink" class="hidden"><a href="#home" class="nav-link" id="dashAnchor">Dashboard</a></li>
+                <li id="authLinks" class="d-flex gap-1">
+                    <a href="#signin" class="btn btn-outline">Sign In</a>
+                    <a href="#signup" class="btn btn-primary">Sign Up</a>
+                </li>
+                <li id="userLinks" class="hidden d-flex align-center gap-2">
+                    <span id="userName"></span>
+                    <button class="btn btn-danger btn-sm" data-action="logout">Logout</button>
+                </li>
+            </ul>
+            <div class="menu-toggle" id="menuToggle"><span></span><span></span><span></span></div>
+        </div>
+    </nav>
+
+    <main id="mainContent"></main>
+
+    <footer class="footer">
+        <p>&copy; <span id="year"></span> Exam Management System. All rights reserved.</p>
+    </footer>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

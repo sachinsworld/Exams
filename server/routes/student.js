@@ -1,0 +1,146 @@
+const express = require('express');
+const User = require('../models/User');
+const Exam = require('../models/Exam');
+const Attempt = require('../models/Attempt');
+const { protect, authorize } = require('../middleware/auth');
+const { asyncHandler, HttpError } = require('../utils/http');
+
+const router = express.Router();
+router.use(protect, authorize('student'));
+
+const GRACE_MS = 60 * 1000;   // network/clock slack when submitting
+
+const publicQuestions = (questions) =>
+    questions.map((q) => ({ _id: q._id, question: q.question, options: q.options, marks: q.marks }));
+
+const examState = (exam, now = new Date()) => {
+    if (now < exam.scheduledDate) return 'upcoming';
+    if (now <= exam.endsAt()) return 'live';
+    return 'ended';
+};
+
+router.get('/dashboard', asyncHandler(async (req, res) => {
+    const now = new Date();
+    const [exams, attempts] = await Promise.all([
+        Exam.find({ status: 'scheduled' }).populate('subject', 'name code'),
+        Attempt.find({ student: req.user._id }).select('exam submittedAt')
+    ]);
+    const open = exams.filter((e) => e.endsAt() >= now);
+    res.json({
+        success: true,
+        data: {
+            profile: req.user,
+            upcomingExams: open.length,
+            completedExams: attempts.filter((a) => a.submittedAt).length
+        }
+    });
+}));
+
+router.get('/exams/available', asyncHandler(async (req, res) => {
+    const now = new Date();
+    const [exams, attempts] = await Promise.all([
+        Exam.find({ status: 'scheduled' }).populate('subject', 'name code').sort({ scheduledDate: 1 }),
+        Attempt.find({ student: req.user._id }).select('exam submittedAt')
+    ]);
+    const byExam = new Map(attempts.map((a) => [String(a.exam), a]));
+    const data = exams
+        .filter((e) => e.endsAt() >= now)
+        .map((e) => {
+            const a = byExam.get(String(e._id));
+            return {
+                _id: e._id, title: e.title, subject: e.subject, duration: e.duration,
+                totalMarks: e.totalMarks, scheduledDate: e.scheduledDate,
+                state: examState(e, now),
+                attempt: a ? (a.submittedAt ? 'submitted' : 'in_progress') : 'none'
+            };
+        });
+    res.json({ success: true, count: data.length, data });
+}));
+
+// Start (or resume) an attempt. Questions are returned WITHOUT correct answers.
+router.post('/exams/:id/start', asyncHandler(async (req, res) => {
+    const exam = await Exam.findById(req.params.id).populate('questions');
+    if (!exam || exam.status !== 'scheduled') throw new HttpError(404, 'Exam not available');
+    const now = new Date();
+    if (examState(exam, now) !== 'live') throw new HttpError(403, 'Exam is not open right now');
+
+    let attempt = await Attempt.findOne({ exam: exam._id, student: req.user._id });
+    if (attempt && attempt.submittedAt) throw new HttpError(409, 'You have already submitted this exam');
+    if (!attempt) {
+        try {
+            attempt = await Attempt.create({ exam: exam._id, student: req.user._id, totalMarks: exam.totalMarks });
+        } catch (e) {
+            if (e.code !== 11000) throw e;
+            attempt = await Attempt.findOne({ exam: exam._id, student: req.user._id });
+        }
+    }
+    const deadline = new Date(attempt.startedAt.getTime() + exam.duration * 60000);
+    res.json({
+        success: true,
+        data: {
+            examId: exam._id, title: exam.title, duration: exam.duration, totalMarks: exam.totalMarks,
+            startedAt: attempt.startedAt, deadline, serverTime: now,
+            questions: publicQuestions(exam.questions)
+        }
+    });
+}));
+
+// Body: { answers: { "<questionId>": <0-3>, ... } }  Scored on the server.
+router.post('/exams/:id/submit', asyncHandler(async (req, res) => {
+    const exam = await Exam.findById(req.params.id).populate('questions');
+    if (!exam) throw new HttpError(404, 'Exam not found');
+    const attempt = await Attempt.findOne({ exam: exam._id, student: req.user._id });
+    if (!attempt) throw new HttpError(400, 'You have not started this exam');
+    if (attempt.submittedAt) throw new HttpError(409, 'You have already submitted this exam');
+
+    const now = new Date();
+    const deadline = attempt.startedAt.getTime() + exam.duration * 60000 + GRACE_MS;
+    if (now.getTime() > deadline) throw new HttpError(403, 'Time is over; submission rejected');
+
+    const given = req.body.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
+    let score = 0;
+    const answers = [];
+    const results = [];
+    for (const q of exam.questions) {
+        const raw = given[String(q._id)];
+        const selected = Number.isInteger(raw) && raw >= 0 && raw <= 3 ? raw : undefined;
+        const isCorrect = selected === q.correctOption;
+        if (isCorrect) score += q.marks;
+        answers.push({ question: q._id, selected, isCorrect });
+        results.push({
+            questionId: q._id, question: q.question, options: q.options,
+            selected, correctOption: q.correctOption, isCorrect
+        });
+    }
+    attempt.set({ answers, score, totalMarks: exam.totalMarks, submittedAt: now });
+    await attempt.save();
+
+    res.json({
+        success: true,
+        message: 'Exam submitted successfully',
+        data: {
+            score, totalMarks: exam.totalMarks,
+            percentage: exam.totalMarks ? Number(((score / exam.totalMarks) * 100).toFixed(2)) : 0,
+            results
+        }
+    });
+}));
+
+router.get('/results', asyncHandler(async (req, res) => {
+    const attempts = await Attempt.find({ student: req.user._id, submittedAt: { $exists: true } })
+        .populate({ path: 'exam', select: 'title subject', populate: { path: 'subject', select: 'name code' } })
+        .select('exam score totalMarks submittedAt')
+        .sort({ submittedAt: -1 });
+    res.json({ success: true, count: attempts.length, data: attempts });
+}));
+
+router.get('/profile', (req, res) => res.json({ success: true, data: req.user }));
+
+router.put('/profile', asyncHandler(async (req, res) => {
+    const user = await User.findByIdAndUpdate(
+        req.user._id, { name: req.body.name }, { new: true, runValidators: true }
+    ).select('-password');
+    res.json({ success: true, message: 'Profile updated successfully', data: user });
+}));
+
+module.exports = router;

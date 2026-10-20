@@ -108,7 +108,7 @@ router.post('/exams/:id/start', asyncHandler(async (req, res) => {
     res.json({
         success: true,
         data: {
-            examId: exam._id, title: exam.title, duration, totalMarks: exam.totalMarks, negativeMarking: attempt.negativeMarking, shuffleQuestions: attempt.shuffleQuestions,
+            examId: exam._id, title: exam.title, duration, totalMarks: exam.totalMarks, negativeMarking: attempt.negativeMarking, shuffleQuestions: attempt.shuffleQuestions, questionDisplay: exam.questionDisplay || 'all',
             startedAt: attempt.startedAt, deadline, serverTime: now,
             questions
         }
@@ -146,14 +146,11 @@ router.post('/exams/:id/submit', asyncHandler(async (req, res) => {
     attempt.set({ answers, score: Math.max(0, Number(score.toFixed(4))), totalMarks: exam.totalMarks, submittedAt: now });
     await attempt.save();
 
+    const answersVisible = exam.answerRelease === 'immediate' || (exam.answerRelease === 'after-end' && exam.endsAt() <= now) || (exam.answerRelease === 'manual' && exam.answersReleased);
     res.json({
-        success: true,
-        message: 'Exam submitted successfully',
-        data: {
-            score, totalMarks: exam.totalMarks,
-            percentage: exam.totalMarks ? Number(((score / exam.totalMarks) * 100).toFixed(2)) : 0,
-            results
-        }
+        success: true, message: 'Exam submitted successfully',
+        data: { score: Math.max(0, Number(score.toFixed(4))), totalMarks: exam.totalMarks, percentage: exam.totalMarks ? Number(((Math.max(0, score) / exam.totalMarks) * 100).toFixed(2)) : 0, answersVisible,
+            results: answersVisible ? results : results.map(({correctOption, ...r}) => r) }
     });
 }));
 

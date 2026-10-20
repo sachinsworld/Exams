@@ -6,6 +6,9 @@ const examSchema = new mongoose.Schema({
     duration: { type: Number, required: [true, 'Duration in minutes is required'], min: 1 },
     negativeMarking: { type: Number, default: 0, min: 0, max: 1 },
     shuffleQuestions: { type: Boolean, default: false },
+    questionDisplay: { type: String, enum: ['all', 'one-by-one'], default: 'all' },
+    answerRelease: { type: String, enum: ['immediate', 'after-end', 'manual'], default: 'after-end' },
+    answersReleased: { type: Boolean, default: false },
     totalMarks: { type: Number, required: true },          // computed from questions
     questions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Question' }],
     scheduledDate: { type: Date, required: [true, 'Scheduled date is required'] },

@@ -120,3 +120,7 @@ a { color: var(--primary-color); }
 .text-center { text-align: center; } .mt-2 { margin-top: 1rem; } .hidden { display: none !important; }
 .d-flex { display: flex; } .justify-between { justify-content: space-between; } .align-center { align-items: center; }
 .gap-1 { gap: .5rem; } .gap-2 { gap: 1rem; }
+
+/* Exam delivery preferences */
+.exam-question[hidden] { display: none !important; }
+#examStep { align-self: center; padding: .5rem; }

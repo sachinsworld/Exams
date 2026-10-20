@@ -234,13 +234,15 @@ const resolveQuestions = async (subjectId, ids) => {
 };
 
 router.post('/exams', asyncHandler(async (req, res) => {
-    const { title, subject, duration, scheduledDate, questions, negativeMarking, shuffleQuestions } = req.body;
+    const { title, subject, duration, scheduledDate, questions, negativeMarking, shuffleQuestions, questionDisplay, answerRelease } = req.body;
     const resolved = await resolveQuestions(subject, questions);
     const exam = await Exam.create({
         title, subject, duration, scheduledDate,
         questions: resolved.ids,
         totalMarks: resolved.totalMarks,
-        createdBy: req.user._id
+        createdBy: req.user._id,
+        questionDisplay: ['all', 'one-by-one'].includes(questionDisplay) ? questionDisplay : 'all',
+        answerRelease: ['immediate', 'after-end', 'manual'].includes(answerRelease) ? answerRelease : 'after-end'
     });
     res.status(201).json({ success: true, message: 'Exam created successfully', data: exam });
 }));
@@ -271,7 +273,7 @@ router.put('/exams/:id', asyncHandler(async (req, res) => {
     if (touchesContent && (await Attempt.exists({ exam: exam._id }))) {
         throw new HttpError(409, 'Students have already attempted this exam; questions/duration are locked');
     }
-    exam.set(pick(req.body, ['title', 'duration', 'scheduledDate', 'subject', 'negativeMarking', 'shuffleQuestions']));
+    exam.set(pick(req.body, ['title', 'duration', 'scheduledDate', 'subject', 'negativeMarking', 'shuffleQuestions', 'questionDisplay', 'answerRelease', 'answersReleased']));
     if (req.body.questions !== undefined) {
         const resolved = await resolveQuestions(exam.subject, req.body.questions);
         exam.questions = resolved.ids;

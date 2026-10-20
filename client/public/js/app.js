@@ -251,6 +251,8 @@ async function adminExams(box) {
             </div>
             <div class="form-group"><label class="form-label">Questions</label><label class="opt"><input type="checkbox" id="selectAllExamQuestions"> Select all questions in this subject</label><div class="picker" id="questionPicker"><span class="form-hint">Choose a subject to list its active questions.</span></div></div>
             <div class="form-row"><label class="opt"><input type="checkbox" name="shuffleQuestions" value="true"> Shuffle question order for each student</label></div>
+            <div class="form-row"><div class="form-group"><label class="form-label">Question display</label><select class="form-select" name="questionDisplay"><option value="all">All questions on one form</option><option value="one-by-one">One question at a time</option></select></div>
+            <div class="form-group"><label class="form-label">Show correct answers</label><select class="form-select" name="answerRelease"><option value="immediate">Immediately after submission</option><option value="after-end" selected>After scheduled exam window ends</option><option value="manual">Only when admin releases them</option></select></div></div>
             <button class="btn btn-primary" type="submit">Create Exam (draft)</button>
         </form>` : '<p class="empty">Create a subject and questions first.</p>'}</div>
     <div class="card"><div class="card-header"><h3 class="card-title">Exams</h3></div>${table(
@@ -260,6 +262,7 @@ async function adminExams(box) {
             <td><div class="table-actions">
                 ${e.status === 'draft' ? `<button class="btn btn-sm btn-success" data-action="publish-exam" data-id="${e._id}">Publish</button>` : ''}
                 ${e.status !== 'cancelled' ? `<button class="btn btn-sm btn-warning" data-action="revoke-exam" data-id="${e._id}">Revoke</button>` : ''}
+                ${e.answerRelease === 'manual' ? `<button class="btn btn-sm btn-outline" data-action="release-answers" data-id="${e._id}" data-released="${!!e.answersReleased}">${e.answersReleased ? 'Answers released' : 'Release answers'}</button>` : ''}
                 <a class="btn btn-sm btn-outline" href="#admin/results/${e._id}">Results</a>
                 <button class="btn btn-sm btn-danger" data-action="delete-exam" data-id="${e._id}">Delete</button>
             </div></td></tr>`))}</div>`;
@@ -342,8 +345,9 @@ async function renderExam(id) {
     main.innerHTML = `<div class="page">
         <div class="exam-bar"><div><strong>${esc(data.title)}</strong><div class="form-hint">${data.questions.length} questions · ${data.totalMarks} marks</div></div><div class="timer" id="timer">--:--</div></div>
         <form data-form="submit-exam" data-exam="${esc(data.examId)}">
-            ${data.questions.map((q, i) => `<div class="q-block"><strong>Q${i + 1}. ${esc(q.question)}</strong> <span class="form-hint">(${q.marks} mark${q.marks === 1 ? '' : 's'})</span>
-                ${q.options.map((o, k) => `<label class="opt"><input type="radio" name="${esc(q._id)}" value="${k}"> ${'ABCD'[k]}. ${esc(o)}</label>`).join('')}</div>`).join('')}
+            <div id="examQuestionArea">${data.questions.map((q, i) => `<div class="q-block exam-question" data-q-index="${i}" ${data.questionDisplay === 'one-by-one' && i > 0 ? 'hidden' : ''}><strong>Q${i + 1}. ${esc(q.question)}</strong> <span class="form-hint">(${q.marks} mark${q.marks === 1 ? '' : 's'})</span>
+                ${q.options.map((o, k) => `<label class="opt"><input type="radio" name="${esc(q._id)}" value="${k}"> ${'ABCD'[k]}. ${esc(o)}</label>`).join('')}</div>`).join('')}</div>
+            ${data.questionDisplay === 'one-by-one' ? '<div class="form-row"><button class="btn btn-secondary" type="button" data-action="exam-prev">Previous</button><span id="examStep" class="form-hint">Question 1</span><button class="btn btn-secondary" type="button" data-action="exam-next">Next</button></div>' : ''}
             <button class="btn btn-primary btn-lg" type="submit">Submit Exam</button>
         </form></div>`;
     const timerEl = $('#timer');
@@ -369,8 +373,8 @@ async function submitExam(form, auto = false) {
         main.innerHTML = `<div class="page">
             <div class="card text-center"><h2>Result</h2><div class="stat-value" style="font-size:3rem">${data.score} / ${data.totalMarks}</div><p>${data.percentage}%</p>
                 <a class="btn btn-primary mt-2" href="#student">Back to dashboard</a></div>
-            ${data.results.map((r, i) => `<div class="q-block"><strong>Q${i + 1}. ${esc(r.question)}</strong>
-                ${r.options.map((o, k) => `<div class="opt ${k === r.correctOption ? 'correct' : k === r.selected ? 'wrong' : ''}">${'ABCD'[k]}. ${esc(o)}${k === r.selected ? ' (your answer)' : ''}</div>`).join('')}</div>`).join('')}</div>`;
+            ${data.answersVisible ? data.results.map((r, i) => `<div class="q-block"><strong>Q${i + 1}. ${esc(r.question)}</strong>
+                ${r.options.map((o, k) => `<div class="opt ${k === r.correctOption ? 'correct' : k === r.selected ? 'wrong' : ''}">${'ABCD'[k]}. ${esc(o)}${k === r.selected ? ' (your answer)' : ''}</div>`).join('')}</div>`).join('') : '<div class="card"><p>Answer key is not available yet. The administrator controls when correct answers are released.</p></div>'}</div>`;
     } catch (e) {
         delete form.dataset.busy;
         if (!e.silent) toast(e.message, 'error');
@@ -416,7 +420,7 @@ const formHandlers = {
         const questions = [...f.querySelectorAll('#questionPicker input:checked')].map((i) => i.value);
         await api('/admin/exams', { method: 'POST', body: {
             title: d.title, subject: d.subject, duration: Number(d.duration), negativeMarking: Number(d.negativeMarking || 0),
-            shuffleQuestions: f.elements.shuffleQuestions.checked,
+            shuffleQuestions: f.elements.shuffleQuestions.checked, questionDisplay: d.questionDisplay, answerRelease: d.answerRelease,
             scheduledDate: new Date(d.scheduledDate).toISOString(), questions } });
         toast('Exam created as draft. Publish it to make it visible to students.', 'success'); await route();
     },
@@ -448,6 +452,9 @@ document.addEventListener('submit', async (e) => {
 const act = {
     'practice-all-subjects': () => { document.querySelectorAll('#practiceSubjects input[type=checkbox]').forEach(x=>x.checked=true); },
     'practice-clear-subjects': () => { document.querySelectorAll('#practiceSubjects input[type=checkbox]').forEach(x=>x.checked=false); },
+    'exam-prev': () => { const qs=[...document.querySelectorAll('.exam-question')]; let i=qs.findIndex(q=>!q.hidden); if(i>0){qs[i].hidden=true;qs[i-1].hidden=false;$('#examStep').textContent=`Question ${i}`;} },
+    'exam-next': () => { const qs=[...document.querySelectorAll('.exam-question')]; let i=qs.findIndex(q=>!q.hidden); if(i<qs.length-1){qs[i].hidden=true;qs[i+1].hidden=false;$('#examStep').textContent=`Question ${i+2}`;} },
+    'release-answers': async (id, el) => { await api(`/admin/exams/${id}`, {method:'PUT', body:{answersReleased:el.dataset.released !== 'true'}}); toast(el.dataset.released === 'true' ? 'Answer release disabled' : 'Correct answers released', 'success'); await route(); },
     logout: async () => {
         try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
         clearSession(); toast('Logged out', 'success'); location.hash = '#home'; await route();

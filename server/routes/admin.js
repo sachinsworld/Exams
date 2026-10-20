@@ -8,6 +8,25 @@ const { protect, authorize } = require('../middleware/auth');
 const { asyncHandler, HttpError, pick } = require('../utils/http');
 
 const router = express.Router();
+
+// Minimal CSV parser supporting quoted fields and escaped double quotes.
+function parseCSV(text) {
+    const rows = []; let row = [], field = '', quoted = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"' && quoted && text[i + 1] === '"') { field += '"'; i++; }
+        else if (c === '"') quoted = !quoted;
+        else if (c === ',' && !quoted) { row.push(field); field = ''; }
+        else if ((c === '\n' || c === '\r') && !quoted) {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(field); if (row.some(v => v.trim())) rows.push(row); row = []; field = '';
+        } else field += c;
+    }
+    row.push(field); if (row.some(v => v.trim())) rows.push(row);
+    if (!rows.length) return [];
+    const headers = rows.shift().map(h => h.trim().toLowerCase());
+    return rows.map(r => Object.fromEntries(headers.map((h, i) => [h, (r[i] || '').trim()])));
+}
 router.use(protect, authorize('admin'));
 
 const syncSubjectCount = async (subjectId) => {
@@ -33,9 +52,31 @@ router.get('/stats', asyncHandler(async (req, res) => {
     res.json({ success: true, data: { students, subjects, questions, exams, attempts } });
 }));
 
+// ============ SIGN-UP REVIEW ============
+router.get('/users/pending', asyncHandler(async (req, res) => {
+    const users = await User.find({ role: 'student', approvalStatus: 'pending' })
+        .select('-password').sort({ createdAt: 1 });
+    res.json({ success: true, count: users.length, data: users });
+}));
+
+router.patch('/users/:id/review', asyncHandler(async (req, res) => {
+    const decision = String(req.body.decision || '').toLowerCase();
+    if (!['approved', 'rejected'].includes(decision)) {
+        throw new HttpError(400, 'Decision must be approved or rejected');
+    }
+    const user = await User.findOne({ _id: req.params.id, role: 'student' });
+    if (!user) throw new HttpError(404, 'Student registration not found');
+    user.approvalStatus = decision;
+    user.reviewedAt = new Date();
+    user.reviewedBy = req.user._id;
+    user.isActive = decision === 'approved';
+    await user.save();
+    res.json({ success: true, message: `Student registration ${decision}`, data: { _id: user._id, approvalStatus: user.approvalStatus, isActive: user.isActive } });
+}));
+
 // ============ USERS (students) ============
 router.get('/users/students', asyncHandler(async (req, res) => {
-    const students = await User.find({ role: 'student' }).select('-password').sort({ createdAt: -1 });
+    const students = await User.find({ role: 'student', approvalStatus: { $ne: 'pending' } }).select('-password').sort({ createdAt: -1 });
     res.json({ success: true, count: students.length, data: students });
 }));
 
@@ -91,6 +132,38 @@ router.delete('/subjects/:id', asyncHandler(async (req, res) => {
     const subject = await Subject.findByIdAndDelete(req.params.id);
     if (!subject) throw new HttpError(404, 'Subject not found');
     res.json({ success: true, message: 'Subject deleted successfully' });
+}));
+
+// Import questions for a subject from CSV or JSON. JSON can be an array or { questions: [...] }.
+router.post('/questions/import', asyncHandler(async (req, res) => {
+    const { subject, format, content } = req.body || {};
+    if (!(await Subject.exists({ _id: subject }))) throw new HttpError(400, 'Select a valid subject');
+    if (typeof content !== 'string' || !content.trim()) throw new HttpError(400, 'Upload a non-empty CSV or JSON file');
+    let rows;
+    try {
+        rows = String(format).toLowerCase() === 'json'
+            ? (() => { const v = JSON.parse(content); return Array.isArray(v) ? v : v.questions; })()
+            : parseCSV(content);
+    } catch { throw new HttpError(400, 'Could not parse file. Check CSV/JSON syntax.'); }
+    if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, 'No questions found in file');
+    if (rows.length > 2000) throw new HttpError(400, 'Import limit is 2000 questions per file');
+    const docs = [];
+    for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const options = Array.isArray(r.options) ? r.options : [r.optionA ?? r.a, r.optionB ?? r.b, r.optionC ?? r.c, r.optionD ?? r.d];
+        const correctRaw = r.correctOption ?? r.correct_option ?? r.answer;
+        const correctOption = typeof correctRaw === 'string' && /^[ABCD]$/i.test(correctRaw.trim()) ? 'ABCD'.indexOf(correctRaw.trim().toUpperCase()) : Number(correctRaw);
+        if (!r.question || !Array.isArray(options) || options.length !== 4 || options.some(v => !String(v ?? '').trim()) || !Number.isInteger(correctOption) || correctOption < 0 || correctOption > 3) {
+            throw new HttpError(400, `Invalid question at row/item ${i + 2}: require question, four options and correctOption (0-3 or A-D)`);
+        }
+        docs.push({ question: String(r.question).trim(), options: options.map(String), correctOption, subject,
+            marks: Number.isFinite(Number(r.marks)) ? Number(r.marks) : 1,
+            difficulty: ['easy','medium','hard'].includes(String(r.difficulty).toLowerCase()) ? String(r.difficulty).toLowerCase() : 'medium',
+            createdBy: req.user._id });
+    }
+    const created = await Question.insertMany(docs, { ordered: true });
+    await syncSubjectCount(subject);
+    res.status(201).json({ success: true, message: `Imported ${created.length} questions`, count: created.length });
 }));
 
 // ============ QUESTIONS ============
@@ -161,7 +234,7 @@ const resolveQuestions = async (subjectId, ids) => {
 };
 
 router.post('/exams', asyncHandler(async (req, res) => {
-    const { title, subject, duration, scheduledDate, questions } = req.body;
+    const { title, subject, duration, scheduledDate, questions, negativeMarking, shuffleQuestions } = req.body;
     const resolved = await resolveQuestions(subject, questions);
     const exam = await Exam.create({
         title, subject, duration, scheduledDate,
@@ -198,7 +271,7 @@ router.put('/exams/:id', asyncHandler(async (req, res) => {
     if (touchesContent && (await Attempt.exists({ exam: exam._id }))) {
         throw new HttpError(409, 'Students have already attempted this exam; questions/duration are locked');
     }
-    exam.set(pick(req.body, ['title', 'duration', 'scheduledDate', 'subject']));
+    exam.set(pick(req.body, ['title', 'duration', 'scheduledDate', 'subject', 'negativeMarking', 'shuffleQuestions']));
     if (req.body.questions !== undefined) {
         const resolved = await resolveQuestions(exam.subject, req.body.questions);
         exam.questions = resolved.ids;

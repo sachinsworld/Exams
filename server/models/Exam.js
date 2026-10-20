@@ -4,6 +4,8 @@ const examSchema = new mongoose.Schema({
     title: { type: String, required: [true, 'Exam title is required'], trim: true },
     subject: { type: mongoose.Schema.Types.ObjectId, ref: 'Subject', required: true },
     duration: { type: Number, required: [true, 'Duration in minutes is required'], min: 1 },
+    negativeMarking: { type: Number, default: 0, min: 0, max: 1 },
+    shuffleQuestions: { type: Boolean, default: false },
     totalMarks: { type: Number, required: true },          // computed from questions
     questions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Question' }],
     scheduledDate: { type: Date, required: [true, 'Scheduled date is required'] },

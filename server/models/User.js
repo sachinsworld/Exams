@@ -31,6 +31,10 @@ const userSchema = new mongoose.Schema({
         set: (v) => (v && String(v).trim()) || undefined   // '' -> not stored
     },
     isActive: { type: Boolean, default: true },
+    // Publicly registered students remain pending until an administrator reviews them.
+    approvalStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
+    reviewedAt: Date,
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     lastLogin: Date
 }, { timestamps: true });
 

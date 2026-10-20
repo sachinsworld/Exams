@@ -28,11 +28,12 @@ router.post('/register', asyncHandler(async (req, res) => {
     if (await User.findOne({ email: String(email).toLowerCase().trim() })) {
         throw new HttpError(400, 'Email already registered');
     }
-    const user = await User.create({ name, email, password, role: 'student', enrollmentNumber });
+    const user = await User.create({ name, email, password, role: 'student', enrollmentNumber, approvalStatus: 'pending' });
+    // Do not issue a session until an administrator approves this registration.
     res.status(201).json({
         success: true,
-        message: 'Registration successful',
-        data: userPayload(user, signToken(user._id))
+        message: 'Registration submitted for admin review. You can sign in after approval.',
+        data: { _id: user._id, name: user.name, email: user.email, role: user.role, approvalStatus: user.approvalStatus }
     });
 }));
 
@@ -45,6 +46,8 @@ router.post('/login', asyncHandler(async (req, res) => {
         throw new HttpError(401, 'Invalid credentials');
     }
     if (!user.isActive) throw new HttpError(403, 'Account has been deactivated by admin');
+    if (user.role === 'student' && user.approvalStatus === 'pending') throw new HttpError(403, 'Your sign-up is awaiting administrator approval. Please try again later.');
+    if (user.role === 'student' && user.approvalStatus === 'rejected') throw new HttpError(403, 'Your sign-up was not approved. Please contact the administrator.');
 
     user.lastLogin = new Date();
     await user.save();

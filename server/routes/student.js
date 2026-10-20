@@ -68,19 +68,27 @@ router.post('/exams/:id/start', asyncHandler(async (req, res) => {
     if (attempt && attempt.submittedAt) throw new HttpError(409, 'You have already submitted this exam');
     if (!attempt) {
         try {
-            attempt = await Attempt.create({ exam: exam._id, student: req.user._id, totalMarks: exam.totalMarks });
+            const requestedDuration = Number(req.body.duration);
+            const duration = Number.isFinite(requestedDuration) ? Math.max(1, Math.min(180, Math.floor(requestedDuration))) : exam.duration;
+            const requestedPenalty = Number(req.body.negativeMarking);
+            const negativeMarking = Number.isFinite(requestedPenalty) ? Math.max(0, Math.min(1, requestedPenalty)) : (exam.negativeMarking || 0);
+            const shuffleQuestions = typeof req.body.shuffleQuestions === 'boolean' ? req.body.shuffleQuestions : !!exam.shuffleQuestions;
+            attempt = await Attempt.create({ exam: exam._id, student: req.user._id, totalMarks: exam.totalMarks, duration, negativeMarking, shuffleQuestions });
         } catch (e) {
             if (e.code !== 11000) throw e;
             attempt = await Attempt.findOne({ exam: exam._id, student: req.user._id });
         }
     }
-    const deadline = new Date(attempt.startedAt.getTime() + exam.duration * 60000);
+    const duration = attempt.duration || exam.duration;
+    const deadline = new Date(attempt.startedAt.getTime() + duration * 60000);
+    let questions = publicQuestions(exam.questions);
+    if (attempt.shuffleQuestions) questions = questions.sort(() => Math.random() - 0.5);
     res.json({
         success: true,
         data: {
-            examId: exam._id, title: exam.title, duration: exam.duration, totalMarks: exam.totalMarks,
+            examId: exam._id, title: exam.title, duration, totalMarks: exam.totalMarks, negativeMarking: attempt.negativeMarking, shuffleQuestions: attempt.shuffleQuestions,
             startedAt: attempt.startedAt, deadline, serverTime: now,
-            questions: publicQuestions(exam.questions)
+            questions
         }
     });
 }));
@@ -94,7 +102,7 @@ router.post('/exams/:id/submit', asyncHandler(async (req, res) => {
     if (attempt.submittedAt) throw new HttpError(409, 'You have already submitted this exam');
 
     const now = new Date();
-    const deadline = attempt.startedAt.getTime() + exam.duration * 60000 + GRACE_MS;
+    const deadline = attempt.startedAt.getTime() + (attempt.duration || exam.duration) * 60000 + GRACE_MS;
     if (now.getTime() > deadline) throw new HttpError(403, 'Time is over; submission rejected');
 
     const given = req.body.answers && typeof req.body.answers === 'object' ? req.body.answers : {};
@@ -106,13 +114,14 @@ router.post('/exams/:id/submit', asyncHandler(async (req, res) => {
         const selected = Number.isInteger(raw) && raw >= 0 && raw <= 3 ? raw : undefined;
         const isCorrect = selected === q.correctOption;
         if (isCorrect) score += q.marks;
+        else if (selected !== undefined && attempt.negativeMarking > 0) score -= q.marks * attempt.negativeMarking;
         answers.push({ question: q._id, selected, isCorrect });
         results.push({
             questionId: q._id, question: q.question, options: q.options,
             selected, correctOption: q.correctOption, isCorrect
         });
     }
-    attempt.set({ answers, score, totalMarks: exam.totalMarks, submittedAt: now });
+    attempt.set({ answers, score: Math.max(0, Number(score.toFixed(4))), totalMarks: exam.totalMarks, submittedAt: now });
     await attempt.save();
 
     res.json({

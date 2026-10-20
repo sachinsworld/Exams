@@ -27,7 +27,7 @@ Admin and Student portals. Optional Streamlit analytics dashboard (`dashboard.py
 5. **Afterwards delete `ADMIN_PASSWORD`** from Render's environment variables.
 
 The first admin is created automatically at startup only when no admin exists. It never overwrites
-accounts. Public sign-up creates students only.
+accounts. Public sign-up creates student accounts in a pending state. An administrator must approve each new registration from **Admin Portal → Sign-up Review** before the student can sign in. Rejected registrations cannot sign in. Students can also choose their own negative-marking percentage when starting an exam; the choice is stored on that attempt.
 
 Notes: the free Render plan sleeps after inactivity (first request takes ~30-60 s).
 Health check: `/health`.
@@ -60,3 +60,25 @@ cd server && npm install && npm run dev    # http://localhost:5000
 ## Production notes
 * Tokens live in `localStorage`; the UI escapes dynamic content. Use httpOnly cookies for stronger protection.
 * Timing is enforced on the server (60 s grace on submit); the browser timer is display only.
+
+
+## Added question import and student exam controls
+
+### Bulk question import
+Sign in as an admin, open **Questions**, choose a subject, and upload a `.csv` or `.json` file.
+CSV headers: `question,optionA,optionB,optionC,optionD,correctOption,marks,difficulty`.
+`correctOption` accepts `A`-`D` or `0`-`3`. JSON may be an array or `{ "questions": [...] }`; each item accepts `question`, `options` (four strings), `correctOption`, `marks`, and `difficulty`. Imports are limited to 2,000 questions per request and validate the whole batch before inserting.
+
+Example JSON item:
+```json
+{
+  "question": "What is 2 + 2?",
+  "options": ["2", "3", "4", "5"],
+  "correctOption": "C",
+  "marks": 1,
+  "difficulty": "easy"
+}
+```
+
+### Exam controls
+Admins can configure a default negative-marking fraction and shuffle question order on the exam creation form. Students can also choose their attempt duration (1-180 minutes), negative-marking fraction (0-1 of the question's marks), and whether to shuffle question order when starting an exam. These choices are stored on the attempt, so resuming uses the same settings. A wrong answered question loses `question marks × negative-marking fraction`; unanswered questions are not penalized. Scores are floored at zero.

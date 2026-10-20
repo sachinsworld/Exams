@@ -134,7 +134,7 @@ const signUpHTML = () => `
 </div></div>`;
 
 /* ------------------------------------------------------------------ admin */
-const ADMIN_TABS = [['dashboard', '📊 Dashboard'], ['users', '👥 Students'], ['subjects', '📚 Subjects'], ['questions', '❓ Questions'], ['exams', '📝 Exams']];
+const ADMIN_TABS = [['dashboard', '📊 Dashboard'], ['signups', '🛂 Sign-up Review'], ['users', '👥 Students'], ['subjects', '📚 Subjects'], ['questions', '❓ Questions'], ['exams', '📝 Exams']];
 
 async function renderAdmin(section, arg) {
     main.innerHTML = `
@@ -144,7 +144,7 @@ async function renderAdmin(section, arg) {
         <section class="admin-content" id="adminContent"><div class="spinner"></div></section>
     </div>`;
     const box = $('#adminContent');
-    const view = { dashboard: adminDashboard, users: adminUsers, subjects: adminSubjects, questions: adminQuestions, exams: adminExams, results: adminResults }[section];
+    const view = { dashboard: adminDashboard, signups: adminSignups, users: adminUsers, subjects: adminSubjects, questions: adminQuestions, exams: adminExams, results: adminResults }[section];
     if (!view) { box.innerHTML = '<div class="card">Section not found.</div>'; return; }
     await view(box, arg);
 }
@@ -158,6 +158,14 @@ async function adminDashboard(box) {
     const card = (v, l) => `<div class="stat-card"><div class="stat-value">${v}</div><div class="stat-label">${l}</div></div>`;
     box.innerHTML = `<h2 style="margin-bottom:1.25rem">Admin Dashboard</h2>
         <div class="dashboard-stats">${card(s.students, 'Students')}${card(s.subjects, 'Subjects')}${card(s.questions, 'Active questions')}${card(s.exams, 'Exams')}${card(s.attempts, 'Submitted attempts')}</div>`;
+}
+
+async function adminSignups(box) {
+    const { data, count } = await api('/admin/users/pending');
+    box.innerHTML = `<div class="card"><div class="card-header"><h3 class="card-title">New Sign-up Requests</h3><span class="badge badge-warning">${count} pending</span></div>
+        <p class="form-hint">Review student details before granting access. Approved students can sign in; rejected registrations cannot.</p>${table(
+        ['Name', 'Email', 'Enrollment', 'Registered', 'Actions'],
+        data.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${esc(u.enrollmentNumber || '-')}</td><td>${fmt(u.createdAt)}</td><td><div class="table-actions"><button class="btn btn-sm btn-success" data-action="review-signup" data-id="${u._id}" data-decision="approved">Approve</button><button class="btn btn-sm btn-danger" data-action="review-signup" data-id="${u._id}" data-decision="rejected">Reject</button></div></td></tr>`))}</div>`;
 }
 
 async function adminUsers(box) {
@@ -207,6 +215,14 @@ async function adminQuestions(box) {
             </div>
             <button class="btn btn-primary" type="submit">Add Question</button>
         </form>` : '<p class="empty">Create a subject first.</p>'}</div>
+    <div class="card"><div class="card-header"><h3 class="card-title">Bulk Import Questions (CSV / JSON)</h3></div>
+        <form data-form="question-import">
+            <div class="form-row"><div class="form-group"><label class="form-label">Subject</label><select class="form-select" name="subject" required>${opts}</select></div>
+            <div class="form-group"><label class="form-label">File format</label><select class="form-select" name="format"><option value="csv">CSV</option><option value="json">JSON</option></select></div></div>
+            <div class="form-group"><label class="form-label">Choose file</label><input class="form-input" type="file" name="file" accept=".csv,.json,application/json,text/csv" required></div>
+            <p class="form-hint">CSV columns: question, optionA, optionB, optionC, optionD, correctOption (A-D or 0-3), marks, difficulty. JSON accepts an array of objects with question, options, correctOption, marks and difficulty.</p>
+            <button class="btn btn-primary" type="submit">Import Questions</button>
+        </form></div>
     <div class="card"><div class="card-header"><h3 class="card-title">Questions</h3></div>${table(
         ['Subject', 'Question', 'Answer', 'Marks', 'Level', 'Status', 'Actions'],
         questions.map((q) => `<tr><td>${esc(q.subject?.code || '-')}</td><td>${esc(q.question)}</td>
@@ -229,9 +245,11 @@ async function adminExams(box) {
                 <div class="form-group"><label class="form-label">Title</label><input class="form-input" name="title" required></div>
                 <div class="form-group"><label class="form-label">Subject</label><select class="form-select" name="subject" id="examSubject" required><option value="">Select...</option>${subjects.map((s) => `<option value="${s._id}">${esc(s.code)} - ${esc(s.name)}</option>`).join('')}</select></div>
                 <div class="form-group"><label class="form-label">Duration (minutes)</label><input type="number" class="form-input" name="duration" min="1" value="30" required></div>
+                <div class="form-group"><label class="form-label">Negative marking per wrong answer (fraction of question marks)</label><input type="number" class="form-input" name="negativeMarking" min="0" max="1" step="0.05" value="0"></div>
                 <div class="form-group"><label class="form-label">Start date &amp; time</label><input type="datetime-local" class="form-input" name="scheduledDate" required></div>
             </div>
             <div class="form-group"><label class="form-label">Questions</label><div class="picker" id="questionPicker"><span class="form-hint">Choose a subject to list its active questions.</span></div></div>
+            <div class="form-row"><label class="opt"><input type="checkbox" name="shuffleQuestions" value="true"> Shuffle question order for each student</label></div>
             <button class="btn btn-primary" type="submit">Create Exam (draft)</button>
         </form>` : '<p class="empty">Create a subject and questions first.</p>'}</div>
     <div class="card"><div class="card-header"><h3 class="card-title">Exams</h3></div>${table(
@@ -281,7 +299,27 @@ async function renderStudent() {
 
 async function renderExam(id) {
     spinner();
-    const { data } = await api(`/student/exams/${id}/start`, { method: 'POST' });
+    // Student-level settings are saved with the attempt; resuming an attempt keeps its original settings.
+    const durationInput = prompt('Exam duration in minutes (1-180). Leave blank to use the exam default:', '');
+    const duration = durationInput && durationInput.trim() ? Number(durationInput) : undefined;
+    if (durationInput && (!Number.isFinite(duration) || duration < 1 || duration > 180)) throw new Error('Duration must be between 1 and 180 minutes');
+    const penaltyInput = prompt(
+        "Choose your negative marking penalty as a percentage of each question\'s marks (0-100).\n" +
+        'Examples: 0 = no penalty, 25 = minus 25%, 100 = minus the full question marks.',
+        '0'
+    );
+    if (penaltyInput === null) {
+        main.innerHTML = '<div class="page"><div class="alert alert-info">Exam start cancelled. You can configure your settings and start again.</div></div>';
+        return;
+    }
+    const penaltyPercent = Number(penaltyInput);
+    if (!Number.isFinite(penaltyPercent) || penaltyPercent < 0 || penaltyPercent > 100) {
+        throw new Error('Negative marking must be a percentage between 0 and 100');
+    }
+    // The API stores the penalty as a fraction: 25% is represented as 0.25.
+    const negativeMarking = penaltyPercent / 100;
+    const shuffleQuestions = confirm('Shuffle question order for this attempt?');
+    const { data } = await api(`/student/exams/${id}/start`, { method: 'POST', body: { duration, negativeMarking, shuffleQuestions } });
     const skew = Date.now() - new Date(data.serverTime).getTime();           // client-vs-server clock offset
     const deadline = new Date(data.deadline).getTime() + skew;
     main.innerHTML = `<div class="page">
@@ -333,12 +371,21 @@ const formHandlers = {
         const d = Object.fromEntries(new FormData(f));
         if (d.password !== d.confirm) throw new Error('Passwords do not match');
         delete d.confirm;
-        const { data } = await api('/auth/register', { method: 'POST', body: d });
-        saveSession(data); toast('Account created', 'success'); location.hash = homeFor(data);
+        const result = await api('/auth/register', { method: 'POST', body: d });
+        toast(result.message || 'Registration submitted for review', 'success');
+        main.innerHTML = `<div class="page"><div class="card"><h2>Registration submitted</h2><p>Your account is awaiting administrator review. You can sign in after it is approved.</p><a class="btn btn-primary" href="#signin">Go to Sign In</a></div></div>`;
     },
     async subject(f) {
         await api('/admin/subjects', { method: 'POST', body: Object.fromEntries(new FormData(f)) });
         toast('Subject added', 'success'); await route();
+    },
+    async 'question-import'(f) {
+        const file = f.querySelector('input[type="file"]').files[0];
+        if (!file) throw new Error('Choose a CSV or JSON file first');
+        const format = f.elements.format.value;
+        const content = await file.text();
+        const { data, count } = await api('/admin/questions/import', { method: 'POST', body: { subject: f.elements.subject.value, format, content } });
+        toast(data?.message || `Imported ${count} questions`, 'success'); await route();
     },
     async question(f) {
         const d = Object.fromEntries(new FormData(f));
@@ -351,7 +398,8 @@ const formHandlers = {
         const d = Object.fromEntries(new FormData(f));
         const questions = [...f.querySelectorAll('#questionPicker input:checked')].map((i) => i.value);
         await api('/admin/exams', { method: 'POST', body: {
-            title: d.title, subject: d.subject, duration: Number(d.duration),
+            title: d.title, subject: d.subject, duration: Number(d.duration), negativeMarking: Number(d.negativeMarking || 0),
+            shuffleQuestions: f.elements.shuffleQuestions.checked,
             scheduledDate: new Date(d.scheduledDate).toISOString(), questions } });
         toast('Exam created as draft. Publish it to make it visible to students.', 'success'); await route();
     },
@@ -376,6 +424,7 @@ const act = {
         clearSession(); toast('Logged out', 'success'); location.hash = '#home'; await route();
     },
     'toggle-user': (id, el) => api(`/admin/users/${id}`, { method: 'PATCH', body: { isActive: el.dataset.active !== 'true' } }),
+    'review-signup': async (id, el) => { if (confirm(`${el.dataset.decision === 'approved' ? 'Approve' : 'Reject'} this student registration?`)) { await api(`/admin/users/${id}/review`, { method: 'PATCH', body: { decision: el.dataset.decision } }); toast(`Registration ${el.dataset.decision}`, 'success'); await route(); } },
     'delete-user': (id) => confirm('Permanently delete this student and their attempts?') && api(`/admin/users/${id}`, { method: 'DELETE' }),
     'delete-subject': (id) => confirm('Delete this subject?') && api(`/admin/subjects/${id}`, { method: 'DELETE' }),
     'revoke-question': (id) => confirm('Revoke this question? It can no longer be added to exams.') && api(`/admin/questions/${id}/revoke`, { method: 'PATCH' }),

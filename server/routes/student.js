@@ -1,5 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
+const Subject = require('../models/Subject');
+const Question = require('../models/Question');
 const Exam = require('../models/Exam');
 const Attempt = require('../models/Attempt');
 const { protect, authorize } = require('../middleware/auth');
@@ -55,6 +57,26 @@ router.get('/exams/available', asyncHandler(async (req, res) => {
             };
         });
     res.json({ success: true, count: data.length, data });
+}));
+
+
+// Practice mode: students choose one or more subjects and can select all available questions.
+router.get('/practice/subjects', asyncHandler(async (req, res) => {
+    const subjects = await Subject.find().select('name code totalQuestions').sort({ name: 1 });
+    res.json({ success: true, data: subjects });
+}));
+
+router.post('/practice/questions', asyncHandler(async (req, res) => {
+    const subjectIds = Array.isArray(req.body.subjects) ? req.body.subjects.filter(Boolean) : [];
+    if (!subjectIds.length) throw new HttpError(400, 'Choose at least one subject');
+    const limit = Math.max(1, Math.min(500, Number(req.body.limit) || 50));
+    let questions = await Question.find({ subject: { $in: subjectIds }, isActive: true }).populate('subject', 'name code').lean();
+    if (!questions.length) throw new HttpError(404, 'No active questions found for the selected subjects');
+    if (req.body.shuffle === true) questions = questions.sort(() => Math.random() - 0.5);
+    if (req.body.selectAll !== true) questions = questions.slice(0, limit);
+    res.json({ success: true, count: questions.length, data: questions.map(q => ({
+        _id: q._id, question: q.question, options: q.options, correctOption: q.correctOption, marks: q.marks, subject: q.subject
+    })) });
 }));
 
 // Start (or resume) an attempt. Questions are returned WITHOUT correct answers.

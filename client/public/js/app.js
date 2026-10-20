@@ -79,6 +79,7 @@ async function route() {
         else if (page === 'signup') main.innerHTML = signUpHTML();
         else if (page === 'admin') { need('admin'); await renderAdmin(a || 'dashboard', b); }
         else if (page === 'student') { need('student'); await renderStudent(); }
+        else if (page === 'practice') { need('student'); await renderPractice(); }
         else if (page === 'exam') { need('student'); await renderExam(a); }
         else main.innerHTML = '<div class="page"><div class="card">Page not found.</div></div>';
     } catch (e) {
@@ -248,7 +249,7 @@ async function adminExams(box) {
                 <div class="form-group"><label class="form-label">Negative marking per wrong answer (fraction of question marks)</label><input type="number" class="form-input" name="negativeMarking" min="0" max="1" step="0.05" value="0"></div>
                 <div class="form-group"><label class="form-label">Start date &amp; time</label><input type="datetime-local" class="form-input" name="scheduledDate" required></div>
             </div>
-            <div class="form-group"><label class="form-label">Questions</label><div class="picker" id="questionPicker"><span class="form-hint">Choose a subject to list its active questions.</span></div></div>
+            <div class="form-group"><label class="form-label">Questions</label><label class="opt"><input type="checkbox" id="selectAllExamQuestions"> Select all questions in this subject</label><div class="picker" id="questionPicker"><span class="form-hint">Choose a subject to list its active questions.</span></div></div>
             <div class="form-row"><label class="opt"><input type="checkbox" name="shuffleQuestions" value="true"> Shuffle question order for each student</label></div>
             <button class="btn btn-primary" type="submit">Create Exam (draft)</button>
         </form>` : '<p class="empty">Create a subject and questions first.</p>'}</div>
@@ -284,6 +285,7 @@ async function renderStudent() {
             <div class="stat-card"><div class="stat-value">${dash.upcomingExams}</div><div class="stat-label">Open / upcoming exams</div></div>
             <div class="stat-card"><div class="stat-value">${dash.completedExams}</div><div class="stat-label">Completed exams</div></div>
         </div>
+        <div class="card"><div class="card-header"><h3 class="card-title">Practice</h3></div><p>Build a practice test from one or more subjects, choose the question count, shuffle questions, or include every available question.</p><a class="btn btn-primary" href="#practice">Start Practice</a></div>
         <div class="card"><div class="card-header"><h3 class="card-title">Available Exams</h3></div>${table(
             ['Title', 'Subject', 'Starts', 'Duration', 'Marks', 'Status', ''],
             exams.map((e) => `<tr><td>${esc(e.title)}</td><td>${esc(e.subject?.code || '')}</td><td>${fmt(e.scheduledDate)}</td><td>${e.duration} min</td><td>${e.totalMarks}</td>
@@ -295,6 +297,21 @@ async function renderStudent() {
             results.map((r) => `<tr><td>${esc(r.exam?.title || '(deleted)')}</td><td>${esc(r.exam?.subject?.code || '')}</td><td>${r.score} / ${r.totalMarks}</td>
                 <td>${r.totalMarks ? ((r.score / r.totalMarks) * 100).toFixed(1) : 0}%</td><td>${fmt(r.submittedAt)}</td></tr>`))}</div>
     </div>`;
+}
+
+async function renderPractice() {
+    spinner();
+    const { data: subjects } = await api('/student/practice/subjects');
+    main.innerHTML = `<div class="page"><div class="card"><div class="card-header"><h2 class="card-title">📝 Practice Test</h2></div>
+      <p>Select one or more subjects. Use Select all subjects or Select all questions for a one-tap setup.</p>
+      <form data-form="practice">
+        <div class="form-row"><button type="button" class="btn btn-secondary" data-action="practice-all-subjects">Select all subjects</button><button type="button" class="btn btn-secondary" data-action="practice-clear-subjects">Clear selection</button></div>
+        <div class="form-group"><label class="form-label">Subjects</label><div class="picker" id="practiceSubjects">${subjects.map(s => `<label class="opt"><input type="checkbox" name="subjects" value="${s._id}"> ${esc(s.code)} - ${esc(s.name)} (${s.totalQuestions || 0} questions)</label>`).join('')}</div></div>
+        <div class="form-row"><div class="form-group"><label class="form-label">Question count</label><input class="form-input" type="number" name="limit" min="1" max="500" value="25"></div><div class="form-group"><label class="form-label">Timer (minutes, 0 = untimed)</label><input class="form-input" type="number" name="duration" min="0" max="180" value="0"></div></div>
+        <label class="opt"><input type="checkbox" name="selectAll" value="true"> Select all questions from selected subjects</label>
+        <label class="opt"><input type="checkbox" name="shuffle" value="true" checked> Shuffle questions</label>
+        <button class="btn btn-primary btn-lg" type="submit">Create Practice Test</button>
+      </form></div><div id="practiceQuestions"></div></div>`;
 }
 
 async function renderExam(id) {
@@ -403,7 +420,17 @@ const formHandlers = {
             scheduledDate: new Date(d.scheduledDate).toISOString(), questions } });
         toast('Exam created as draft. Publish it to make it visible to students.', 'success'); await route();
     },
-    async 'submit-exam'(f) { await submitExam(f); }
+    async 'submit-exam'(f) { await submitExam(f); },
+    async practice(f) {
+        const subjects = [...f.querySelectorAll('input[name=subjects]:checked')].map(x => x.value);
+        const { data: qs } = await api('/student/practice/questions', { method: 'POST', body: { subjects, limit: Number(f.elements.limit.value || 25), selectAll: f.elements.selectAll.checked, shuffle: f.elements.shuffle.checked } });
+        const target = $('#practiceQuestions');
+        target.innerHTML = `<div class="card"><h3>Practice questions (${qs.length})</h3><form data-form="practice-submit">${qs.map((q,i)=>`<div class="q-block"><strong>Q${i+1}. ${esc(q.question)}</strong><span class="form-hint"> ${esc(q.subject?.name || '')} · ${q.marks} mark(s)</span>${q.options.map((o,k)=>`<label class="opt"><input type="radio" name="q_${q._id}" value="${k}"> ${'ABCD'[k]}. ${esc(o)}</label>`).join('')}<div class="practice-feedback" data-correct="${q.correctOption}" hidden></div></div>`).join('')}<button class="btn btn-primary" type="submit">Check Answers</button></form></div>`;
+        state.practiceQuestions = qs;
+        if (Number(f.elements.duration.value) > 0) { let left = Number(f.elements.duration.value)*60; const timer = document.createElement('div'); timer.className='alert alert-info'; timer.id='practiceTimer'; timer.textContent=`Practice time: ${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}`; target.prepend(timer); state.timer=setInterval(()=>{left--; if(left<=0){clearInterval(state.timer); const form=target.querySelector('form[data-form=practice-submit]'); if(form) form.requestSubmit(); return;} timer.textContent=`Practice time: ${Math.floor(left/60)}:${String(left%60).padStart(2,'0')}`;},1000); }
+        target.scrollIntoView({behavior:'smooth'});
+    },
+    async 'practice-submit'(f) { const qs=state.practiceQuestions||[]; let score=0, answered=0; qs.forEach((q,i)=>{const picked=f.querySelector(`input[name="q_${q._id}"]:checked`); const feedback=f.querySelectorAll('.practice-feedback')[i]; feedback.hidden=false; if(!picked){feedback.textContent='Unanswered';return;} answered++; const correct=Number(picked.value)===q.correctOption; if(correct) score+=Number(q.marks||1); feedback.textContent=correct?'Correct ✓':`Incorrect. Correct answer: ${'ABCD'[q.correctOption]}. ${q.options[q.correctOption]}`;}); toast(`Practice complete: ${score} marks; ${answered}/${qs.length} answered`, 'success'); f.querySelector('button[type=submit]').disabled=true; }
 };
 
 document.addEventListener('submit', async (e) => {
@@ -419,6 +446,8 @@ document.addEventListener('submit', async (e) => {
 
 /* ------------------------------------------------- delegated click handlers */
 const act = {
+    'practice-all-subjects': () => { document.querySelectorAll('#practiceSubjects input[type=checkbox]').forEach(x=>x.checked=true); },
+    'practice-clear-subjects': () => { document.querySelectorAll('#practiceSubjects input[type=checkbox]').forEach(x=>x.checked=false); },
     logout: async () => {
         try { await api('/auth/logout', { method: 'POST' }); } catch { /* ignore */ }
         clearSession(); toast('Logged out', 'success'); location.hash = '#home'; await route();
@@ -444,6 +473,8 @@ document.addEventListener('click', async (e) => {
         if (res && res.message) { toast(res.message, 'success'); await route(); }
     } catch (err) { if (!err.silent) toast(err.message, 'error'); }
 });
+
+document.addEventListener('change', (e) => { if (e.target.id === 'selectAllExamQuestions') document.querySelectorAll('#questionPicker input[type=checkbox]').forEach(x => x.checked = e.target.checked); });
 
 // Load the active questions of the chosen subject into the exam form
 document.addEventListener('change', async (e) => {

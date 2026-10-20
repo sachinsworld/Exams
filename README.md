@@ -82,3 +82,19 @@ Example JSON item:
 
 ### Exam controls
 Admins can configure a default negative-marking fraction and shuffle question order on the exam creation form. Students can also choose their attempt duration (1-180 minutes), negative-marking fraction (0-1 of the question's marks), and whether to shuffle question order when starting an exam. These choices are stored on the attempt, so resuming uses the same settings. A wrong answered question loses `question marks × negative-marking fraction`; unanswered questions are not penalized. Scores are floored at zero.
+
+
+## Granth Portal integration
+
+The complete Granth Portal has been integrated as a same-origin sub-application at **`/granth/`**. Use the **Granth Portal** link in the Exam Management System navigation to open it. The original exam-platform routes and MongoDB collections remain separate.
+
+Granth features retained from the supplied Granth Portal project include:
+- First-run administrator setup, student signup/login, session management and password/profile controls.
+- Current-affairs practice, subject-wise practice, exam-wise mock tests, timers, scoring/negative marking, explanations and progress.
+- Assigned tests, mistake notebook, question bank and question flagging.
+- Admin student approvals, account/role management, analytics, per-student results/export, exams and subjects, question management and bulk import (PDF/TXT/JSON/CSV), test builder, announcements, current-affairs month imports, database tools, audit log, backup and restore.
+
+### Granth data storage
+The Granth service uses its own storage namespace and does not reuse the Exam Management System database collections. For persistent production hosting, configure `GRANTH_MONGODB_URI` and optionally `GRANTH_MONGODB_DB=granth`. If `GRANTH_MONGODB_URI` is blank, it uses SQLite on Node 22+ or its JSON fallback on older supported Node versions. On hosts with ephemeral filesystems, configure MongoDB or a persistent disk so Granth user and practice data survives redeploys.
+
+Set `GRANTH_DISABLED=1` to disable the integrated portal. The internal service port defaults to 3107 and can be changed with `GRANTH_INTERNAL_PORT`; users should access it through `/granth/` on the main app origin.

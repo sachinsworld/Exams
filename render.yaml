@@ -1,27 +1,15 @@
-# Render Blueprint: New + -> Blueprint -> select this repo
 services:
   - type: web
-    name: exam-platform
-    runtime: node
-    plan: free
-    rootDir: server
-    buildCommand: npm install
-    startCommand: npm start
-    healthCheckPath: /health
+    name: granth-portal
+    runtime: docker
+    plan: starter            # persistent disks need a paid plan
+    healthCheckPath: /healthz
+    disk:
+      name: granth-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: MONGODB_DB
-        value: exam_management
-      - key: JWT_EXPIRE
-        value: 7d
-      - key: JWT_SECRET
+      - key: DATA_DIR
+        value: /data
+      - key: SESSION_SECRET
         generateValue: true
-      - key: MONGODB_URI
-        sync: false          # paste your Atlas connection string in the Render dashboard
-      - key: ADMIN_NAME
-        sync: false
-      - key: ADMIN_EMAIL
-        sync: false
-      - key: ADMIN_PASSWORD
-        sync: false

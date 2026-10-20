@@ -8,6 +8,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/database');
 const { notFound, errorHandler } = require('./middleware/error');
+const ensureAdmin = require('./utils/ensureAdmin');
 
 for (const key of ['MONGODB_URI', 'JWT_SECRET']) {
     if (!process.env[key]) {
@@ -17,6 +18,7 @@ for (const key of ['MONGODB_URI', 'JWT_SECRET']) {
 }
 
 const app = express();
+app.set('trust proxy', 1);   // Render sits behind a proxy (needed for rate limiting / client IPs)
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',') : false }));
@@ -43,8 +45,14 @@ app.use(express.static(path.join(__dirname, '..', 'client', 'public')));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
-connectDB().then(() => {
-    app.listen(PORT, () => console.log(`🚀 Open http://localhost:${PORT}`));
+connectDB().then(async () => {
+    try {
+        const r = await ensureAdmin();
+        console.log(r.created ? `✅ First admin created: ${r.email}` : `ℹ️  Admin bootstrap skipped: ${r.reason}`);
+    } catch (e) {
+        console.error('Admin bootstrap failed:', e.message);
+    }
+    app.listen(PORT, () => console.log(`🚀 Listening on port ${PORT}`));
 });
 
 module.exports = app;

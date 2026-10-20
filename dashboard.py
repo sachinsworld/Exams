@@ -18,23 +18,48 @@ def mongo_uri() -> str:
 
 
 @st.cache_resource
-def get_db():
-    client = MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
-    return client.get_default_database(default="exam_management")
+def get_client():
+    return MongoClient(mongo_uri(), serverSelectionTimeoutMS=5000)
 
 
-db = get_db()
+client = get_client()
 try:
-    db.command("ping")
+    client.admin.command("ping")
 except Exception as e:
     st.error(f"Cannot reach MongoDB: {e}")
     st.stop()
+
+# ---- which database? The app always uses MONGODB_DB (default "exam_management")
+def _setting(key, default):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key, default)
+
+
+default_name = _setting("MONGODB_DB", "exam_management")   # same value the app uses
+try:
+    candidates = [n for n in client.list_database_names()
+                  if "users" in client[n].list_collection_names()]
+except Exception:                          # user lacks listDatabases permission
+    candidates = []
+options = candidates or [default_name]
+index = options.index(default_name) if default_name in options else 0
+db_name = st.sidebar.selectbox("Database", options, index=index)
+db = client[db_name]
+st.sidebar.caption(f"Connected to: {db_name}")
+if not candidates:
+    st.sidebar.warning("Could not list databases. Showing the one from MONGODB_URI.")
 
 st.title("📊 Exam Platform Analytics")
 
 names = ["users", "subjects", "questions", "exams", "attempts"]
 for col, n in zip(st.columns(len(names)), names):
     col.metric(n.title(), db[n].count_documents({}))
+
+if db["users"].count_documents({}) == 0:
+    st.warning(f"Database '{db_name}' has no users. If your app has data, it is using a different "
+               "database name or cluster: compare MONGODB_URI in the app and in this dashboard.")
 
 attempts = pd.DataFrame(db.attempts.find(
     {"submittedAt": {"$exists": True}},
@@ -46,7 +71,7 @@ if attempts.empty:
 students = pd.DataFrame(db.users.find(
     {"role": "student"}, {"name": 1, "email": 1, "enrollmentNumber": 1}))   # never read passwords
 exams = pd.DataFrame(db.exams.find({}, {"title": 1}))
-for frame, cols in ((students, ["name", "email", "enrollmentNumber"]), (exams, ["title"])):
+for frame, cols in ((students, ["_id", "name", "email", "enrollmentNumber"]), (exams, ["_id", "title"])):
     for c in cols:
         if c not in frame.columns:
             frame[c] = None

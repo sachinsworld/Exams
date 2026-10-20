@@ -281,27 +281,22 @@ async function renderStudent() {
     spinner();
     const [{ data: dash }, { data: exams }, { data: results }] = await Promise.all([
         api('/student/dashboard'), api('/student/exams/available'), api('/student/results')]);
-    const stateBadge = { upcoming: 'badge-info', live: 'badge-success' };
-    main.innerHTML = `<div class="page">
-        <h2 style="margin-bottom:1.25rem">Welcome, ${esc(dash.profile.name)}</h2>
-        <div class="dashboard-stats">
-            <div class="stat-card"><div class="stat-value">${dash.upcomingExams}</div><div class="stat-label">Open / upcoming exams</div></div>
-            <div class="stat-card"><div class="stat-value">${dash.completedExams}</div><div class="stat-label">Completed exams</div></div>
-        </div>
-        <div class="card"><div class="card-header"><h3 class="card-title">Practice</h3></div><p>Build a practice test from one or more subjects, choose the question count, shuffle questions, or include every available question.</p><a class="btn btn-primary" href="#practice">Start Practice</a></div>
-        <div class="card"><div class="card-header"><h3 class="card-title">Available Exams</h3></div>${table(
-            ['Title', 'Subject', 'Starts', 'Duration', 'Marks', 'Status', ''],
-            exams.map((e) => `<tr><td>${esc(e.title)}</td><td>${esc(e.subject?.code || '')}</td><td>${fmt(e.scheduledDate)}</td><td>${e.duration} min</td><td>${e.totalMarks}</td>
-                <td><span class="badge ${stateBadge[e.state]}">${e.state}</span></td>
-                <td>${e.attempt === 'submitted' ? '<span class="badge badge-gray">Submitted</span>'
-                    : e.state === 'live' ? `<a class="btn btn-sm btn-primary" href="#exam/${e._id}">${e.attempt === 'in_progress' ? 'Resume' : 'Start'}</a>` : ''}</td></tr>`))}</div>
-        <div class="card"><div class="card-header"><h3 class="card-title">My Results</h3></div>${table(
-            ['Exam', 'Subject', 'Score', '%', 'Submitted'],
-            results.map((r) => `<tr><td>${esc(r.exam?.title || '(deleted)')}</td><td>${esc(r.exam?.subject?.code || '')}</td><td>${r.score} / ${r.totalMarks}</td>
-                <td>${r.totalMarks ? ((r.score / r.totalMarks) * 100).toFixed(1) : 0}%</td><td>${fmt(r.submittedAt)}</td></tr>`))}</div>
+    const pct = r => r.totalMarks ? Math.round((r.score / r.totalMarks) * 100) : 0;
+    const average = results.length ? Math.round(results.reduce((n,r)=>n+pct(r),0)/results.length) : 0;
+    const best = results.length ? Math.max(...results.map(pct)) : 0;
+    const live = exams.filter(e => e.state === 'live').length;
+    main.innerHTML = `<div class="portal-wrap">
+      <div class="portal-top"><div><h1>Granth Portal</h1><p>STUDENT PORTAL · THE GRANTH 2026 · UPSC / UPPSC</p></div><div class="portal-user"><span>${esc(dash.profile.name)}</span><a class="pill" href="#student">Student</a><a class="pill" href="#admin/dashboard">Admin</a><button class="pill" data-action="logout">Sign out</button></div></div>
+      <nav class="portal-tabs"><a class="portal-tab active" href="#student">🏠 Dashboard</a><a class="portal-tab" href="#student">📰 Current Affairs</a><a class="portal-tab" href="#practice">📚 Subject-wise</a><a class="portal-tab" href="#practice">🎓 Exam-wise</a><a class="portal-tab" href="#student">🎯 Assigned tests</a><a class="portal-tab" href="#student">🔁 Mistakes</a><a class="portal-tab" href="#practice">🗂️ Question bank</a><a class="portal-tab" href="#student">👤 Account</a></nav>
+      <section class="portal-welcome"><h2>Welcome, ${esc(dash.profile.name)} 👋</h2><p>Your progress is saved to your account.</p></section>
+      <div class="portal-metrics"><div><strong>${dash.completedExams}</strong><span>Tests taken</span></div><div><strong>${average}%</strong><span>Average score</span></div><div><strong>${best}%</strong><span>Best score</span></div><div><strong>${live}</strong><span>Live exams</span></div><div><strong>${exams.length}</strong><span>Available tests</span></div></div>
+      <section class="portal-panel"><h3>📰 Current affairs: accuracy by month</h3><p class="muted">Take practice tests to build your accuracy history.</p><div class="portal-progress"><span>Overall practice</span><div class="track"><i style="width:${average}%"></i></div><b>${average}%</b></div></section>
+      <section class="portal-panel"><h3>📚 Subject-wise accuracy</h3><p class="muted">Take a test to see your accuracy by subject.</p><a class="pill" href="#practice">Start subject practice →</a></section>
+      <section class="portal-panel"><h3>🎓 Exam readiness</h3><p class="muted">Practice by subject, review results, and prepare for your next exam.</p><a class="pill" href="#practice">Build a practice test →</a></section>
+      <section class="portal-panel"><h3>🎯 Available tests</h3>${table(['Exam','Subject','Starts','Duration','Marks','Status',''],exams.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(e.subject?.code||'')}</td><td>${fmt(e.scheduledDate)}</td><td>${e.duration} min</td><td>${e.totalMarks}</td><td><span class="badge ${e.state==='live'?'badge-success':'badge-info'}">${e.state}</span></td><td>${e.attempt==='submitted'?'<span class="badge badge-gray">Submitted</span>':e.state==='live'?`<a class="btn btn-sm btn-primary" href="#exam/${e._id}">${e.attempt==='in_progress'?'Resume':'Start'}</a>`:''}</td></tr>`))}</section>
+      <section class="portal-panel"><h3>📈 Recent attempts</h3>${table(['Date','Score','Questions','Type'],results.slice(0,8).map(r=>`<tr><td>${fmt(r.submittedAt)}</td><td>${r.score} / ${r.totalMarks} (${pct(r)}%)</td><td>${r.answers?.length ?? '—'}</td><td>${esc(r.exam?.title||'Exam')}</td></tr>`))}</section>
     </div>`;
 }
-
 async function renderPractice() {
     spinner();
     const { data: subjects } = await api('/student/practice/subjects');

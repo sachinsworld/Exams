@@ -124,3 +124,38 @@ a { color: var(--primary-color); }
 /* Exam delivery preferences */
 .exam-question[hidden] { display: none !important; }
 #examStep { align-self: center; padding: .5rem; }
+
+
+/* Granth Portal visual theme */
+:root{--primary-color:#809cff;--secondary-color:#5369a8;--gray-50:#0e132b;--gray-100:#171d3a;--gray-200:#29345f;--gray-300:#3b4775;--gray-500:#9ba8ce;--gray-600:#b7c2e5;--gray-700:#d0d8f4;--gray-800:#e4e9ff;--gray-900:#edf1ff;--radius-md:1rem;--radius-lg:1.2rem}
+body{background:#0e132b;color:#e8edff}
+.navbar{background:#101630;border-bottom:1px solid #29345f;box-shadow:none}
+.nav-brand h1{color:#809cff}
+.nav-link{color:#c6d0f0}
+.nav-link:hover{color:#fff}
+.page{max-width:920px}
+.card,.stat-card,.q-block{background:#1b2242;border:1px solid #2c3867;border-radius:18px;box-shadow:none;color:#e8edff}
+.card-title,.card h2,.card h3{color:#edf1ff}
+.form-input{background:#101630;color:#edf1ff;border:1px solid #34416f}
+.table th{background:#1b2242;color:#edf1ff}.table td{border-color:#2c3867;color:#dce4ff}
+.footer{background:#101630;color:#9ba8ce;border-top:1px solid #29345f}
+.btn-primary{background:#809cff;color:#111a38}.btn-primary:hover:not(:disabled){background:#9db2ff}
+.portal-wrap{max-width:920px;margin:1rem auto 3rem;padding:0 1rem}
+.portal-top{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
+.portal-top h1{font-family:Georgia,serif;color:#809cff;font-size:1.7rem;line-height:1.15}
+.portal-top p{color:#eab54b;font-size:.75rem;font-weight:700;letter-spacing:.08em}
+.portal-user{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;color:#aab6d8}
+.portal-tabs{display:flex;gap:.45rem;flex-wrap:wrap;margin:1rem 0}
+.portal-tab,.pill{display:inline-flex;align-items:center;justify-content:center;padding:.65rem .9rem;border-radius:999px;border:1px solid #303c6b;background:#1a2140;color:#e7ecff;text-decoration:none;font-weight:650;cursor:pointer;font:inherit;font-size:.9rem}
+.portal-tab:hover,.pill:hover,.portal-tab.active{background:#809cff;color:#111a38;border-color:#809cff}
+.portal-welcome,.portal-panel{background:#1b2242;border:1px solid #2c3867;border-radius:18px;padding:1.15rem;margin:1rem 0}
+.portal-welcome h2{font-family:Georgia,serif;font-size:1.65rem;margin-bottom:.25rem}
+.portal-welcome p,.muted{color:#9ba8ce}
+.portal-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.5rem;margin:1.25rem 0}
+.portal-metrics>div{text-align:center;padding:.6rem .2rem;display:flex;flex-direction:column;gap:.1rem}
+.portal-metrics strong{font-size:1.5rem;color:#edf1ff}.portal-metrics span{font-size:.9rem;color:#e0e6ff}
+.portal-panel h3{font-size:1.05rem;margin-bottom:.6rem;color:#e7ecff}
+.portal-progress{display:grid;grid-template-columns:150px 1fr auto;align-items:center;gap:.7rem;margin-top:.8rem}
+.track{height:11px;background:#303b69;border-radius:999px;overflow:hidden}.track i{display:block;height:100%;background:#4bc68d;border-radius:999px}
+.portal-panel .table-responsive{margin-top:.8rem}
+@media(max-width:650px){.portal-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.portal-top{align-items:flex-start}.portal-progress{grid-template-columns:1fr;gap:.35rem}.portal-tabs{gap:.35rem}.portal-tab{font-size:.82rem;padding:.55rem .65rem}.portal-wrap{padding:0 .7rem}}
